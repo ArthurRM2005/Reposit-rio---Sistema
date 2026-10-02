@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Configurações · Gestão Hubs</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <meta name="theme-color" content="#242321">
+  <title>Configurações · Órion</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23242321'/><ellipse cx='16' cy='19' rx='8' ry='7' fill='none' stroke='%23dfff2e' stroke-width='3.5' transform='rotate(-25 16 19)'/><path d='M12 8 L21 4.5' stroke='%23dfff2e' stroke-width='2.5' stroke-linecap='round'/></svg>">
   <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="config">
@@ -25,6 +26,16 @@
         <div class="row">
           <button class="btn primary" id="sb-save">Salvar e conectar</button>
           <button class="btn ghost" id="sb-reset">Usar valores do config.js</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Financeiro</h2>
+        <p>Faturamento mensal médio da empresa. É a base do cálculo de churn no Dashboard CS (churn = faturamento do cliente ÷ esta base).</p>
+        <div class="row">
+          <label class="field" style="width:260px"><span>Faturamento mensal base (R$)</span>
+            <div class="affix"><span>R$</span><input class="input" type="number" min="0" step="any" id="fin-base"></div></label>
+          <button class="btn primary" id="fin-save" style="align-self:flex-end">Salvar</button>
         </div>
       </section>
 
@@ -78,6 +89,17 @@
       location.href = Store.isRemote() ? 'login.html' : 'configuracoes.html';
     });
     $('#sb-reset').addEventListener('click', () => { Store.setSettings(null); Store.logout(); location.reload(); });
+
+    // ---------- financeiro ----------
+    Store.get('config', 'financeiro').catch(() => null).then(f => {
+      $('#fin-base').value = f?.faturamentoMensalBase || window.APP_CONFIG.faturamentoMensalBase || 120000;
+    });
+    $('#fin-save').addEventListener('click', async () => {
+      const v = Number($('#fin-base').value);
+      if (!(v > 0)) { toast('Informe um valor maior que zero', 'error'); return; }
+      try { await Store.save('config', { id: 'financeiro', faturamentoMensalBase: v }); toast('Faturamento base salvo', 'ok'); }
+      catch (e) { toast(e.message, 'error'); }
+    });
 
     // ---------- monitoramento ----------
     let cfg;

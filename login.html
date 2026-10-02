@@ -3,14 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Entrar · Gestão Hubs</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <meta name="theme-color" content="#242321">
+  <title>Entrar · Órion</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23242321'/><ellipse cx='16' cy='19' rx='8' ry='7' fill='none' stroke='%23dfff2e' stroke-width='3.5' transform='rotate(-25 16 19)'/><path d='M12 8 L21 4.5' stroke='%23dfff2e' stroke-width='2.5' stroke-linecap='round'/></svg>">
   <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="login">
   <div class="login-wrap">
+    <img class="login-logo" src="logo.png" alt="Órion">
     <form class="card login-card" id="login">
-      <div class="brand"><span class="brand-mark">G</span>Gestão Hubs</div>
+      <h2>Entrar no Gestão Hubs</h2>
       <label class="field"><span>E-mail</span><input class="input" type="email" name="email" required autocomplete="username"></label>
       <label class="field"><span>Senha</span><input class="input" type="password" name="password" required autocomplete="current-password"></label>
       <button class="btn primary" type="submit">Entrar</button>
@@ -25,6 +27,18 @@
       $('#mode').innerHTML = 'Nenhum banco na nuvem configurado. <a href="index.html">Continuar em modo local</a>.';
     } else if (Store.getSession()) {
       location.href = 'index.html';
+    }
+    // configuração salva na página Configurações tem prioridade sobre o config.js
+    if (localStorage.getItem('gh_settings')) {
+      $('#mode').innerHTML = `Este navegador está usando uma configuração salva manualmente
+        (<code>${esc(Store.settings().supabaseUrl)}</code>), e não a do config.js.
+        <a href="#" id="reset-settings">Usar a do config.js</a>`;
+      $('#reset-settings').addEventListener('click', e => {
+        e.preventDefault();
+        Store.setSettings(null);
+        Store.logout();
+        location.reload();
+      });
     }
     $('#login').addEventListener('submit', async e => {
       e.preventDefault();

@@ -3,28 +3,54 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard CS · Gestão Hubs</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <meta name="theme-color" content="#242321">
+  <title>Dashboard CS · Órion</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23242321'/><ellipse cx='16' cy='19' rx='8' ry='7' fill='none' stroke='%23dfff2e' stroke-width='3.5' transform='rotate(-25 16 19)'/><path d='M12 8 L21 4.5' stroke='%23dfff2e' stroke-width='2.5' stroke-linecap='round'/></svg>">
   <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="dash-cs">
   <main class="content">
     <header class="page-head">
-      <div><h1>Dashboard CS</h1><p>Saídas, aviso prévio, churn e tempo de vida</p></div>
+      <div><h1>Dashboard CS</h1><p>Churn de faturamento: clientes em aviso prévio e clientes que já saíram</p></div>
     </header>
     <div class="filters" id="filters"></div>
-    <section class="kpis" id="kpis"></section>
+
+    <section class="kpis" id="k-resumo"></section>
+    <p class="muted small note">Faturamento de cada cliente = mensalidade fixa + (taxa variável × faturamento mensal médio do cliente).
+      Churn = esse faturamento ÷ faturamento mensal base da empresa.</p>
+
+    <div class="section-head">
+      <span class="badge warn">⏳ Em aviso prévio</span>
+      <h2>Clientes em A.P: faturamento a perder</h2>
+      <span class="muted small">Situação atual, não depende do período</span>
+    </div>
+    <section class="kpis" id="k-ap"></section>
     <section class="charts">
-      <div class="card"><h3>Solicitações de saída por mês</h3><div class="chart-box"><canvas id="c-solic"></canvas></div></div>
-      <div class="card"><h3>Mensalidade fixa perdida por mês de saída</h3><div class="chart-box"><canvas id="c-mrr"></canvas></div></div>
-      <div class="card"><h3>Tempo de vida dos clientes que saíram</h3><div class="chart-box"><canvas id="c-vida"></canvas></div></div>
-      <div class="card"><h3>Saídas por hub</h3><div class="chart-box"><canvas id="c-hub"></canvas></div></div>
+      <div class="card"><h3>Faturamento a perder por mês de saída</h3><div class="chart-box"><canvas id="c-ap-mes"></canvas></div></div>
+      <div class="card"><h3>Reuniões de A.P</h3><div class="chart-box"><canvas id="c-ap-reuniao"></canvas></div></div>
     </section>
     <div class="card table-card">
-      <div style="padding:16px 16px 0"><h3>Próximas saídas</h3></div>
       <div class="table-wrap"><table class="data static"><thead><tr>
-        <th>Saída prevista</th><th class="num">Faltam</th><th>Loja</th><th>Cliente</th><th>Hub</th><th class="num">Mensalidade</th><th class="num">Faturamento médio</th><th>Reunião de A.P</th>
-      </tr></thead><tbody id="t-prox"></tbody></table></div>
+        <th>Saída prevista</th><th class="num">Faltam</th><th>Loja</th><th>Cliente</th><th>Hub</th>
+        <th class="num">Faturamento a perder</th><th class="num">% da base</th><th>Reunião de A.P</th>
+      </tr></thead><tbody id="t-ap"></tbody></table></div>
+    </div>
+
+    <div class="section-head">
+      <span class="badge down">✕ Saíram</span>
+      <h2>Clientes que saíram: faturamento perdido</h2>
+      <span class="muted small" id="saiu-periodo"></span>
+    </div>
+    <section class="kpis" id="k-saiu"></section>
+    <section class="charts">
+      <div class="card"><h3>Churn de faturamento por mês</h3><div class="chart-box"><canvas id="c-churn-mes"></canvas></div></div>
+      <div class="card"><h3>Tempo de vida dos clientes que saíram</h3><div class="chart-box"><canvas id="c-vida"></canvas></div></div>
+      <div class="card"><h3>Faturamento perdido por hub</h3><div class="chart-box"><canvas id="c-hub"></canvas></div></div>
+    </section>
+    <div class="card table-card">
+      <div class="table-wrap"><table class="data static"><thead><tr>
+        <th>Saída</th><th>Loja</th><th>Cliente</th><th>Hub</th><th class="num">Faturamento perdido</th><th class="num">% da base</th><th class="num">Tempo de vida</th>
+      </tr></thead><tbody id="t-saiu"></tbody></table></div>
     </div>
   </main>
   <script src="config.js"></script>
@@ -36,72 +62,121 @@
   <script>
     $('#filters').innerHTML = Dash.filtersHTML();
     let comercial = [], cs = [];
+    let BASE = window.APP_CONFIG.faturamentoMensalBase || 120000;
     const AP_BADGE = { 'Realizada': 'ok', 'Agendada': 'neutral', 'Pendente': 'warn', 'Não realizada': 'down' };
+
+    // faturamento mensal que a empresa recebe do cliente
+    const fixa = r => Number(r.mensalidade_fixa) || 0;
+    const variavel = r => (Number(r.faturamento_medio) || 0) * (Number(r.taxa_variavel) || 0) / 100;
+    const receita = r => fixa(r) + variavel(r);
+    const somaReceita = arr => arr.reduce((s, r) => s + receita(r), 0);
+    const pctBase = v => BASE ? v / BASE * 100 : null;
+    const pctTxt = v => fmt.pct(Math.round(pctBase(v) * 100) / 100);
 
     function render() {
       const hub = $('#f-hub').value;
       const today = dates.today();
       const base = cs.filter(r => !hub || r.hub === hub);
-      const { from, to } = Dash.periodRange($('#f-periodo').value, cs.map(r => dates.ym(r.data_solicitacao)));
-      const inP = d => { const m = dates.ym(d); return m && m >= from && m <= to; };
-      const solic = base.filter(r => inP(r.data_solicitacao));
-      const saidas = base.filter(r => inP(r.data_saida_prevista));
-      const efetivadas = saidas.filter(r => r.data_saida_prevista <= today);
-      const em30 = dates.addDays(today, 30);
-      const proximas = base.filter(r => r.data_saida_prevista && r.data_saida_prevista >= today).sort((a, b) => a.data_saida_prevista.localeCompare(b.data_saida_prevista));
-      const prox30 = proximas.filter(r => r.data_saida_prevista <= em30);
-      const pendAP = base.filter(r => (r.reuniao_ap || 'Pendente') === 'Pendente' && (!r.data_saida_prevista || r.data_saida_prevista >= today));
-      const agendAP = base.filter(r => r.reuniao_ap === 'Agendada').length;
 
-      // churn de logos: saídas no período ÷ base de clientes do Comercial no início do período
-      const baseCom = comercial.filter(c => (!hub || c.hub === hub));
-      const iniPeriodo = from + '-01';
-      const saiuAntes = new Set(cs.filter(c => c.data_saida_prevista && c.data_saida_prevista < iniPeriodo).map(c => norm(c.loja)));
-      const baseInicio = baseCom.filter(c => (c.data_entrada_real || c.data_entrada_contrato || '0') < iniPeriodo && !saiuAntes.has(norm(c.nome_loja))).length;
-      const churn = baseInicio ? saidas.length / baseInicio * 100 : null;
+      // A.P = pediu para sair e a data de saída ainda não chegou (ou não foi definida)
+      const emAP = base.filter(r => !r.data_saida_prevista || r.data_saida_prevista > today)
+        .sort((a, b) => (a.data_saida_prevista || '9999').localeCompare(b.data_saida_prevista || '9999'));
+      // saíram = data de saída já passou, dentro do período escolhido
+      const todasSaidas = base.filter(r => r.data_saida_prevista && r.data_saida_prevista <= today);
+      const { from, to } = Dash.periodRange($('#f-periodo').value, todasSaidas.map(r => dates.ym(r.data_saida_prevista)));
+      const saiu = todasSaidas.filter(r => { const m = dates.ym(r.data_saida_prevista); return m >= from && m <= to; })
+        .sort((a, b) => b.data_saida_prevista.localeCompare(a.data_saida_prevista));
+      const nMeses = dates.monthRange(from, to).length;
+      $('#f-info').textContent = `Saídas de ${fmt.month(from)} a ${fmt.month(to)}`;
+      $('#saiu-periodo').textContent = `Saídas de ${fmt.month(from)} a ${fmt.month(to)}`;
 
-      $('#f-info').textContent = `${fmt.month(from)} a ${fmt.month(to)}`;
-      Dash.kpis('#kpis', [
-        { label: 'Solicitações de saída', value: fmt.num(solic.length, 0), sub: 'recebidas no período' },
-        { label: 'Mensalidade fixa perdida', value: fmt.moneyShort(Dash.sum(saidas, 'mensalidade_fixa')), sub: `${saidas.length} saídas previstas no período` },
-        { label: 'Faturamento médio dos que saem', value: fmt.money(Dash.avg(saidas, 'faturamento_medio')), sub: `${fmt.money(Dash.sum(saidas, 'faturamento_medio'))}/mês somados` },
-        { label: 'Churn de clientes', value: churn === null ? '—' : fmt.pct(churn), sub: baseInicio ? `${saidas.length} saídas ÷ ${baseInicio} clientes no início` : 'sem base no Comercial' },
-        { label: 'Tempo de vida médio', value: saidas.length ? fmt.num(Dash.avg(saidas, 'tempo_vida')) + ' meses' : '—', sub: 'dos clientes com saída no período' },
-        { label: 'Saídas nos próximos 30 dias', value: fmt.num(prox30.length, 0), sub: `${fmt.money(Dash.sum(prox30, 'mensalidade_fixa'))}/mês em risco` },
-        { label: 'Reuniões de A.P pendentes', value: fmt.num(pendAP.length, 0), sub: `${agendAP} agendadas` },
-        { label: 'Aviso prévio médio', value: solic.length ? fmt.num(Dash.avg(solic, 'aviso_previo_dias'), 0) + ' dias' : '—' },
+      const aPerder = somaReceita(emAP);
+      const perdido = somaReceita(saiu);
+
+      // ---------- resumo ----------
+      Dash.kpis('#k-resumo', [
+        { label: 'Faturamento mensal base', value: fmt.money(BASE), sub: '<a href="configuracoes.html">Alterar em Configurações</a>' },
+        { label: 'Churn em A.P (a perder)', value: pctTxt(aPerder), sub: `${fmt.money(aPerder)}/mês de ${emAP.length} cliente(s)` },
+        { label: 'Churn realizado no período', value: pctTxt(perdido), sub: `${fmt.money(perdido)}/mês · média de ${pctTxt(perdido / nMeses)} ao mês` },
+        { label: 'Faturamento após as saídas em A.P', value: fmt.money(BASE - aPerder), sub: `${pctTxt(BASE - aPerder)} da base mantida` },
       ]);
 
-      const months = dates.monthRange(from, to);
-      const labels = months.map(fmt.month);
-      const colors = Dash.HUB_COLORS();
-      const hubs = hub ? [hub] : HUBS;
-      Dash.bar('c-solic', {
-        labels, stacked: true,
-        datasets: hubs.map(h => ({ label: h, color: colors[h], data: months.map(m => solic.filter(r => r.hub === h && dates.ym(r.data_solicitacao) === m).length) })),
-      });
-      const mrrMes = Dash.sumBy(saidas, r => dates.ym(r.data_saida_prevista), 'mensalidade_fixa');
-      Dash.bar('c-mrr', { labels, money: true, datasets: [{ label: 'Mensalidade perdida', data: months.map(m => mrrMes[m] || 0) }] });
-      const buckets = [['até 3 meses', 0, 3], ['3 a 6', 3, 6], ['6 a 12', 6, 12], ['12 a 24', 12, 24], ['mais de 24', 24, Infinity]];
-      const comVida = saidas.filter(r => !isBlank(r.tempo_vida));
-      Dash.bar('c-vida', { labels: buckets.map(b => b[0]), datasets: [{ label: 'Clientes', data: buckets.map(([, a, b]) => comVida.filter(r => r.tempo_vida >= a && r.tempo_vida < b).length) }] });
-      const porHub = Dash.countBy(saidas, r => r.hub || 'Sem hub');
-      const hubLabels = [...hubs, ...(porHub['Sem hub'] ? ['Sem hub'] : [])];
-      Dash.bar('c-hub', { labels: hubLabels, horizontal: true, datasets: [{ label: 'Saídas', data: hubLabels.map(h => porHub[h] || 0) }] });
+      // ---------- em A.P ----------
+      const em30 = dates.addDays(today, 30);
+      const prox30 = emAP.filter(r => r.data_saida_prevista && r.data_saida_prevista <= em30);
+      const reun = Dash.countBy(emAP, r => r.reuniao_ap || 'Pendente');
+      Dash.kpis('#k-ap', [
+        { label: 'Clientes em A.P', value: fmt.num(emAP.length, 0), sub: emAP.filter(r => !r.data_saida_prevista).length ? `${emAP.filter(r => !r.data_saida_prevista).length} sem data de saída` : 'com saída já agendada' },
+        { label: 'Faturamento a perder', value: fmt.money(aPerder), sub: `${pctTxt(aPerder)} da base · ${fmt.money(Dash.sum(emAP, 'mensalidade_fixa'))} fixa + ${fmt.money(emAP.reduce((s, r) => s + variavel(r), 0))} variável` },
+        { label: 'Saem nos próximos 30 dias', value: fmt.num(prox30.length, 0), sub: `${fmt.money(somaReceita(prox30))}/mês (${pctTxt(somaReceita(prox30))})` },
+        { label: 'Reuniões de A.P pendentes', value: fmt.num(reun['Pendente'] || 0, 0), sub: `${reun['Agendada'] || 0} agendadas · ${reun['Realizada'] || 0} realizadas` },
+      ]);
 
-      $('#t-prox').innerHTML = proximas.map(r => {
-        const dias = dates.diffDays(today, r.data_saida_prevista);
+      const ultimoMes = emAP.map(r => dates.ym(r.data_saida_prevista)).filter(Boolean).sort().pop();
+      const fimAP = ultimoMes && ultimoMes > today.slice(0, 7) ? ultimoMes : today.slice(0, 7);
+      const mesesAP = dates.monthRange(today.slice(0, 7), fimAP);
+      const apMes = Dash.sumBy(emAP.map(r => ({ m: dates.ym(r.data_saida_prevista), v: receita(r) })), x => x.m, 'v');
+      Dash.bar('c-ap-mes', {
+        labels: mesesAP.map(fmt.month), money: true,
+        datasets: [{ label: 'A perder', data: mesesAP.map(m => apMes[m] || 0) }],
+        afterLabel: v => `${pctTxt(v)} do faturamento base`,
+      });
+      const statusAP = REUNIAO_AP;
+      Dash.bar('c-ap-reuniao', { labels: statusAP, horizontal: true, datasets: [{ label: 'Clientes', data: statusAP.map(s => reun[s] || 0) }] });
+
+      $('#t-ap').innerHTML = emAP.map(r => {
         const ap = r.reuniao_ap || 'Pendente';
         return `<tr>
-          <td>${fmt.date(r.data_saida_prevista)}</td><td class="num">${dias} dias</td><td>${esc(r.loja)}</td><td>${esc(r.nome_cliente || '—')}</td>
-          <td>${esc(r.hub || '—')}</td><td class="num">${fmt.money(r.mensalidade_fixa)}</td><td class="num">${fmt.money(r.faturamento_medio)}</td>
+          <td>${fmt.date(r.data_saida_prevista)}</td><td class="num">${r.data_saida_prevista ? dates.diffDays(today, r.data_saida_prevista) + ' dias' : '—'}</td>
+          <td>${esc(r.loja)}</td><td>${esc(r.nome_cliente || '—')}</td><td>${esc(r.hub || '—')}</td>
+          <td class="num">${fmt.money(receita(r))}</td><td class="num">${pctTxt(receita(r))}</td>
           <td><span class="badge ${AP_BADGE[ap] || 'neutral'}">${esc(ap)}</span></td></tr>`;
-      }).join('') || '<tr><td colspan="8" class="empty">Nenhuma saída prevista.</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="empty">Nenhum cliente em aviso prévio.</td></tr>';
+
+      // ---------- saíram ----------
+      const baseCom = comercial.filter(c => !hub || c.hub === hub);
+      const ini = from + '-01';
+      const saiuAntes = new Set(cs.filter(c => c.data_saida_prevista && c.data_saida_prevista < ini).map(c => norm(c.loja)));
+      const clientesInicio = baseCom.filter(c => (c.data_entrada_real || c.data_entrada_contrato || '0') < ini && !saiuAntes.has(norm(c.nome_loja))).length;
+      Dash.kpis('#k-saiu', [
+        { label: 'Clientes que saíram', value: fmt.num(saiu.length, 0), sub: 'no período' },
+        { label: 'Faturamento perdido', value: fmt.money(perdido), sub: `churn de ${pctTxt(perdido)} sobre ${fmt.money(BASE)}` },
+        { label: 'Churn de clientes', value: clientesInicio ? fmt.pct(Math.round(saiu.length / clientesInicio * 1000) / 10) : '—', sub: clientesInicio ? `${saiu.length} de ${clientesInicio} clientes no início do período` : 'sem base no Comercial' },
+        { label: 'Tempo de vida médio', value: saiu.length && Dash.avg(saiu, 'tempo_vida') !== null ? fmt.num(Dash.avg(saiu, 'tempo_vida')) + ' meses' : '—' },
+      ]);
+
+      const meses = dates.monthRange(from, to);
+      const perdMes = Dash.sumBy(saiu.map(r => ({ m: dates.ym(r.data_saida_prevista), v: receita(r) })), x => x.m, 'v');
+      Dash.bar('c-churn-mes', {
+        labels: meses.map(fmt.month), suffix: '%',
+        datasets: [{ label: 'Churn', data: meses.map(m => Math.round(pctBase(perdMes[m] || 0) * 100) / 100) }],
+        afterLabel: (v, c) => `${fmt.money(perdMes[meses[c.dataIndex]] || 0)}/mês perdidos`,
+      });
+      const buckets = [['até 3 meses', 0, 3], ['3 a 6', 3, 6], ['6 a 12', 6, 12], ['12 a 24', 12, 24], ['mais de 24', 24, Infinity]];
+      const comVida = saiu.filter(r => !isBlank(r.tempo_vida));
+      Dash.bar('c-vida', { labels: buckets.map(b => b[0]), datasets: [{ label: 'Clientes', data: buckets.map(([, a, b]) => comVida.filter(r => r.tempo_vida >= a && r.tempo_vida < b).length) }] });
+      const hubs = hub ? [hub] : HUBS;
+      const porHub = Dash.sumBy(saiu.map(r => ({ h: r.hub || 'Sem hub', v: receita(r) })), x => x.h, 'v');
+      const hubLabels = [...hubs, ...(porHub['Sem hub'] ? ['Sem hub'] : [])];
+      Dash.bar('c-hub', {
+        labels: hubLabels, horizontal: true, money: true,
+        datasets: [{ label: 'Perdido', data: hubLabels.map(h => porHub[h] || 0) }],
+        afterLabel: v => `${pctTxt(v)} do faturamento base`,
+      });
+
+      $('#t-saiu').innerHTML = saiu.map(r => `<tr>
+        <td>${fmt.date(r.data_saida_prevista)}</td><td>${esc(r.loja)}</td><td>${esc(r.nome_cliente || '—')}</td><td>${esc(r.hub || '—')}</td>
+        <td class="num">${fmt.money(receita(r))}</td><td class="num">${pctTxt(receita(r))}</td>
+        <td class="num">${isBlank(r.tempo_vida) ? '—' : fmt.num(r.tempo_vida) + ' meses'}</td></tr>`).join('')
+        || '<tr><td colspan="7" class="empty">Nenhum cliente saiu no período.</td></tr>';
     }
 
     (async () => {
-      try { [comercial, cs] = await Promise.all([Store.list('comercial'), Store.list('cs')]); }
-      catch (e) { toast('Erro ao carregar dados: ' + e.message, 'error'); }
+      try {
+        let fin;
+        [comercial, cs, fin] = await Promise.all([Store.list('comercial'), Store.list('cs'), Store.get('config', 'financeiro').catch(() => null)]);
+        if (fin?.faturamentoMensalBase) BASE = Number(fin.faturamentoMensalBase);
+      } catch (e) { toast('Erro ao carregar dados: ' + e.message, 'error'); }
       $$('#filters select').forEach(s => s.addEventListener('change', render));
       Dash.onThemeChange(render);
       render();

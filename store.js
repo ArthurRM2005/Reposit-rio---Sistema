@@ -13,7 +13,10 @@ const Store = (() => {
     const o = readJSON(OVERRIDE, {});
     // valores salvos neste navegador só valem se preenchidos; senão vale o config.js
     const pick = k => (o.supabaseUrl && o.supabaseAnonKey ? o[k] : window.APP_CONFIG[k]) || '';
-    return { supabaseUrl: pick('supabaseUrl').replace(/\/+$/, ''), supabaseAnonKey: pick('supabaseAnonKey') };
+    return {
+      supabaseUrl: pick('supabaseUrl').trim().replace(/\/+$/, '').replace(/\/(rest|auth)\/v1$/, ''),
+      supabaseAnonKey: pick('supabaseAnonKey').trim(),
+    };
   }
   function setSettings(s) {
     if (s === null) localStorage.removeItem(OVERRIDE);

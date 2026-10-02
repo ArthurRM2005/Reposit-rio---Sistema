@@ -5,7 +5,7 @@ const Dash = (() => {
 
   const HUB_COLORS = () => Object.fromEntries(HUBS.map((h, i) => [h, css(`--series-${(i % 4) + 1}`)]));
 
-  function bar(id, { labels, datasets, horizontal = false, money = false, stacked = false, suffix = '' }) {
+  function bar(id, { labels, datasets, horizontal = false, money = false, stacked = false, suffix = '', afterLabel = null }) {
     charts[id]?.destroy();
     const ctx = document.getElementById(id);
     const tick = v => money ? fmt.moneyShort(v) : fmt.num(v) + suffix;
@@ -15,7 +15,7 @@ const Dash = (() => {
       data: {
         labels,
         datasets: datasets.map(d => ({
-          backgroundColor: d.color || css('--series-1'),
+          backgroundColor: d.color || css('--chart-brand'),
           borderRadius: 4,
           borderSkipped: 'start',
           borderColor: css('--surface'),
@@ -34,7 +34,10 @@ const Dash = (() => {
           tooltip: {
             backgroundColor: css('--surface'), titleColor: css('--text'), bodyColor: css('--text-2'),
             borderColor: css('--border'), borderWidth: 1, padding: 10,
-            callbacks: { label: c => `${single ? '' : c.dataset.label + ': '}${money ? fmt.money(c.parsed[horizontal ? 'x' : 'y']) : fmt.num(c.parsed[horizontal ? 'x' : 'y']) + suffix}` },
+            callbacks: {
+              label: c => `${single ? '' : c.dataset.label + ': '}${money ? fmt.money(c.parsed[horizontal ? 'x' : 'y']) : fmt.num(c.parsed[horizontal ? 'x' : 'y']) + suffix}`,
+              ...(afterLabel ? { afterLabel: c => afterLabel(c.parsed[horizontal ? 'x' : 'y'], c) } : {}),
+            },
           },
         },
         scales: {
