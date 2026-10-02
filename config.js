@@ -4,7 +4,7 @@
 // Deixando em branco, o sistema funciona em modo local (dados apenas neste navegador).
 window.APP_CONFIG = {
   appName: 'Gestão Hubs',
-  supabaseUrl: 'https://gmkazwyddaptsjapuxri.supabase.co/rest/v1/',
+  supabaseUrl: 'https://gmkazwyddaptsjapuxri.supabase.co',
   supabaseAnonKey: 'sb_publishable_CY6lKEx7BmmMU_oSKvW3Vg_obo09xXM',
   hubs: ['Savassi', 'Cidade Nova', 'Pampulha', 'Buritis'],
 };
