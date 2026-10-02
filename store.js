@@ -11,7 +11,8 @@ const Store = (() => {
 
   function settings() {
     const o = readJSON(OVERRIDE, {});
-    const pick = k => ('supabaseUrl' in o ? o[k] : window.APP_CONFIG[k]) || '';
+    // valores salvos neste navegador só valem se preenchidos; senão vale o config.js
+    const pick = k => (o.supabaseUrl && o.supabaseAnonKey ? o[k] : window.APP_CONFIG[k]) || '';
     return { supabaseUrl: pick('supabaseUrl').replace(/\/+$/, ''), supabaseAnonKey: pick('supabaseAnonKey') };
   }
   function setSettings(s) {
@@ -29,13 +30,31 @@ const Store = (() => {
 
   async function authRequest(grant, body) {
     const s = settings();
-    const r = await fetch(`${s.supabaseUrl}/auth/v1/token?grant_type=${grant}`, {
-      method: 'POST',
-      headers: { apikey: s.supabaseAnonKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(s.supabaseUrl)) {
+      throw new Error(`A URL do Supabase no config.js parece errada: "${s.supabaseUrl}". Ela deve ser no formato https://xxxx.supabase.co (Project Settings → Data API).`);
+    }
+    let r;
+    try {
+      r = await fetch(`${s.supabaseUrl}/auth/v1/token?grant_type=${grant}`, {
+        method: 'POST',
+        headers: { apikey: s.supabaseAnonKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new Error('Não foi possível conectar ao Supabase. Confira a URL no config.js e se o projeto não está pausado.');
+    }
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error_description || j.msg || j.error || 'Falha na autenticação');
+    if (!r.ok) {
+      const raw = j.error_description || j.msg || j.message || j.error || '';
+      const code = j.error_code || '';
+      const TRAD = {
+        invalid_credentials: 'E-mail ou senha incorretos.',
+        email_not_confirmed: 'E-mail ainda não confirmado. No Supabase, crie o usuário com "Auto Confirm User" marcado.',
+      };
+      if (TRAD[code] || /invalid login credentials/i.test(raw)) throw new Error(TRAD[code] || TRAD.invalid_credentials);
+      if (/api key/i.test(raw) || r.status === 401) throw new Error('Chave do Supabase inválida no config.js. Use a "anon public" ou a "Publishable key".');
+      throw new Error(`Falha na autenticação (${r.status}${raw ? ': ' + raw : ''})`);
+    }
     setSession({
       access_token: j.access_token,
       refresh_token: j.refresh_token,
