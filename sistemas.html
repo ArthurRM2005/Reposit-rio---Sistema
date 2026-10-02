@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Status dos Sistemas · Gestão Hubs</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="sistemas">
+  <main class="content">
+    <header class="page-head">
+      <div><h1>Status dos Sistemas</h1><p>Hubs, ChatPro e notificações push de pedidos</p></div>
+      <span class="spacer"></span>
+      <span class="muted small" id="next"></span>
+      <button class="btn ghost" id="alerts">Ativar alertas</button>
+      <button class="btn primary" id="refresh">Verificar agora</button>
+    </header>
+    <div class="card overall unknown" id="overall"><span class="dot"></span><span>Verificando…</span></div>
+    <div id="groups"></div>
+    <div class="card table-card" style="margin-top:20px">
+      <div style="padding:16px 16px 0"><h3>Histórico de mudanças (neste navegador)</h3></div>
+      <div class="table-wrap"><table class="data static"><thead><tr><th>Quando</th><th>Serviço</th><th>Status</th><th>Detalhe</th></tr></thead>
+      <tbody id="hist"></tbody></table></div>
+    </div>
+  </main>
+  <script src="config.js"></script>
+  <script src="store.js"></script>
+  <script src="common.js"></script>
+  <script src="monitor.js"></script>
+  <script>
+    const HIST_KEY = 'gh_hist';
+    let cfg, results = {}, timer, countdown;
+    let alertsOn = localStorage.getItem('gh_alerts') === '1';
+
+    const hist = () => { try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch { return []; } };
+    function pushHist(svc, res) {
+      const h = [{ at: new Date().toISOString(), id: svc.id, nome: svc.nome, status: res.status, detalhe: res.detalhe }, ...hist()].slice(0, 200);
+      localStorage.setItem(HIST_KEY, JSON.stringify(h));
+    }
+
+    function beep() {
+      try {
+        const ac = new AudioContext(), o = ac.createOscillator(), g = ac.createGain();
+        o.frequency.value = 880; o.connect(g); g.connect(ac.destination);
+        g.gain.setValueAtTime(.2, ac.currentTime); g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + .6);
+        o.start(); o.stop(ac.currentTime + .6);
+      } catch {}
+    }
+    function alertDown(svc, res) {
+      if (!alertsOn) return;
+      beep();
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(`${svc.nome}: ${Monitor.labels(svc).down}`, { body: res.detalhe });
+      }
+    }
+    function updateAlertsBtn() { $('#alerts').textContent = alertsOn ? 'Alertas ativados' : 'Ativar alertas'; }
+    $('#alerts').addEventListener('click', async () => {
+      if (!alertsOn && 'Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
+      alertsOn = !alertsOn;
+      localStorage.setItem('gh_alerts', alertsOn ? '1' : '0');
+      updateAlertsBtn();
+      toast(alertsOn ? 'Você será avisado (som + notificação) quando algo cair' : 'Alertas desativados');
+    });
+
+    function render() {
+      const groups = [...new Set(cfg.servicos.map(s => s.grupo))];
+      $('#groups').innerHTML = groups.map(g => `
+        <h2 class="svc-group">${esc(g)}</h2>
+        <div class="services">${cfg.servicos.filter(s => s.grupo === g).map(card).join('')}</div>`).join('');
+
+      const st = cfg.servicos.map(s => results[s.id]?.status || 'unknown');
+      const down = cfg.servicos.filter(s => results[s.id]?.status === 'down');
+      const unk = st.filter(s => s === 'unknown').length;
+      const ov = $('#overall');
+      ov.className = 'card overall ' + (down.length ? 'down' : unk ? 'unknown' : 'ok');
+      ov.innerHTML = `<span class="dot"></span><span>${down.length
+        ? `${down.length} com problema: ${down.map(s => esc(s.nome)).join(', ')}`
+        : unk ? `${unk} serviço(s) sem informação, os demais estão normais` : 'Todos os sistemas estão operando normalmente'}</span>`;
+
+      $$('[data-set]').forEach(b => b.addEventListener('click', () => setManual(b.dataset.id, b.dataset.set)));
+      $$('[data-check]').forEach(b => b.addEventListener('click', () => checkOne(cfg.servicos.find(s => s.id === b.dataset.check))));
+      $$('[data-beat]').forEach(b => b.addEventListener('click', async () => {
+        await Store.save('heartbeat', { id: b.dataset.beat, at: new Date().toISOString() });
+        toast('Sinal de teste registrado');
+        checkOne(cfg.servicos.find(s => s.id === b.dataset.beat));
+      }));
+
+      $('#hist').innerHTML = hist().slice(0, 50).map(h => {
+        const svc = cfg.servicos.find(s => s.id === h.id) || { grupo: '' };
+        return `<tr><td>${fmt.dateTime(h.at)}</td><td>${esc(h.nome)}</td>
+          <td><span class="badge ${h.status === 'ok' ? 'ok' : h.status === 'down' ? 'down' : 'warn'}">${Monitor.labels(svc)[h.status]}</span></td>
+          <td class="muted">${esc(h.detalhe)}</td></tr>`;
+      }).join('') || '<tr><td colspan="4" class="empty">Nenhuma mudança registrada ainda.</td></tr>';
+    }
+
+    function card(s) {
+      const r = results[s.id] || { status: 'unknown', detalhe: 'Verificando…' };
+      const L = Monitor.labels(s);
+      const icon = { ok: '●', down: '✕', unknown: '?' }[r.status];
+      return `<div class="card svc ${r.status}">
+        <div class="svc-head"><span class="svc-name">${esc(s.nome)}</span><span class="badge neutral">${Monitor.MODOS[s.modo] || s.modo}</span></div>
+        <div class="svc-status">${r.status === 'ok' ? '<span class="dot"></span>' : `<span aria-hidden="true">${icon}</span>`}${L[r.status]}</div>
+        <div class="svc-meta"><span>${esc(r.detalhe)}</span>
+          ${r.em ? `<span class="muted">${r.manual ? 'Atualizado' : 'Verificado'} ${fmt.ago(r.em)}</span>` : ''}</div>
+        <div class="svc-actions">
+          ${s.modo === 'manual' ? `
+            <button class="btn small" data-set="ok" data-id="${s.id}">Marcar ${L.ok.toLowerCase()}</button>
+            <button class="btn small danger" data-set="down" data-id="${s.id}">Marcar ${L.down.toLowerCase()}</button>`
+          : `<button class="btn small ghost" data-check="${s.id}">Verificar</button>`}
+          ${s.modo === 'heartbeat' ? `<button class="btn small ghost" data-beat="${s.id}" title="Simula um sinal do sistema externo">Sinal de teste</button>` : ''}
+        </div></div>`;
+    }
+
+    async function setManual(id, status) {
+      const svc = cfg.servicos.find(s => s.id === id);
+      const nota = prompt(`Observação (opcional) — ${svc.nome}: ${Monitor.labels(svc)[status]}`, '');
+      if (nota === null) return;
+      await Store.save('status', { id, status, nota: nota.trim() || null, por: Store.getSession()?.email || null });
+      await checkOne(svc);
+    }
+
+    function apply(svc, res) {
+      const prev = results[svc.id]?.status;
+      results[svc.id] = res;
+      if (prev !== res.status && !(prev === undefined && res.status === 'unknown')) {
+        pushHist(svc, res);
+        if (prev && res.status === 'down') alertDown(svc, res);
+      }
+    }
+
+    async function checkOne(svc) {
+      const [manual, beat] = await Promise.all([Store.get('status', svc.id), Store.get('heartbeat', svc.id)]).catch(() => [null, null]);
+      apply(svc, await Monitor.check(svc, manual, beat));
+      render();
+    }
+
+    async function checkAll() {
+      clearTimeout(timer);
+      $('#refresh').disabled = true;
+      try {
+        const [manual, beats] = await Promise.all([Store.list('status'), Store.list('heartbeat')]).catch(e => { toast(e.message, 'error'); return [[], []]; });
+        const byId = arr => Object.fromEntries(arr.map(x => [x.id, x]));
+        const M = byId(manual), B = byId(beats);
+        const res = await Promise.all(cfg.servicos.map(s => Monitor.check(s, M[s.id], B[s.id])));
+        cfg.servicos.forEach((s, i) => apply(s, res[i]));
+        render();
+      } finally {
+        $('#refresh').disabled = false;
+        schedule();
+      }
+    }
+
+    function schedule() {
+      let left = cfg.intervalo;
+      clearInterval(countdown);
+      countdown = setInterval(() => { left--; $('#next').textContent = `Atualiza em ${Math.max(left, 0)}s`; }, 1000);
+      timer = setTimeout(checkAll, cfg.intervalo * 1000);
+    }
+
+    $('#refresh').addEventListener('click', checkAll);
+    (async () => {
+      cfg = await Monitor.loadConfig();
+      updateAlertsBtn();
+      render();
+      checkAll();
+    })();
+  </script>
+</body>
+</html>

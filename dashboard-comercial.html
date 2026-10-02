@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard Comercial · Gestão Hubs</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="dash-comercial">
+  <main class="content">
+    <header class="page-head">
+      <div><h1>Dashboard Comercial</h1><p>Indicadores de entrada de clientes</p></div>
+    </header>
+    <div class="filters" id="filters"></div>
+    <section class="kpis" id="kpis"></section>
+    <section class="charts">
+      <div class="card"><h3>Novos clientes por mês</h3><div class="chart-box"><canvas id="c-novos"></canvas></div></div>
+      <div class="card"><h3>Mensalidade fixa adicionada por mês</h3><div class="chart-box"><canvas id="c-mrr"></canvas></div></div>
+      <div class="card"><h3>Mensalidade fixa por hub</h3><div class="chart-box"><canvas id="c-hub"></canvas></div></div>
+      <div class="card"><h3>Clientes por modelo</h3><div class="chart-box"><canvas id="c-modelo"></canvas></div></div>
+    </section>
+    <div class="card table-card">
+      <div style="padding:16px 16px 0"><h3>Fechamentos do período</h3></div>
+      <div class="table-wrap"><table class="data static"><thead><tr>
+        <th>Mês</th><th>Loja</th><th>Cliente</th><th>Hub</th><th>Modelo</th><th class="num">Mensalidade</th><th>Entrada real</th><th>ICP</th>
+      </tr></thead><tbody id="t-fech"></tbody></table></div>
+    </div>
+  </main>
+  <script src="config.js"></script>
+  <script src="store.js"></script>
+  <script src="common.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="dash.js"></script>
+  <script>
+    $('#filters').innerHTML = Dash.filtersHTML();
+    let comercial = [], cs = [];
+    const mesRef = r => r.mes_fechamento || dates.ym(r.data_entrada_real) || dates.ym(r.data_entrada_contrato);
+
+    function render() {
+      const hub = $('#f-hub').value;
+      const base = comercial.filter(r => !hub || r.hub === hub);
+      const { from, to } = Dash.periodRange($('#f-periodo').value, comercial.map(mesRef));
+      const rows = base.filter(r => { const m = mesRef(r); return m && m >= from && m <= to; });
+      $('#f-info').textContent = `${fmt.month(from)} a ${fmt.month(to)} · ${rows.length} fechamentos`;
+
+      // base ativa: clientes cuja saída prevista (CS) ainda não ocorreu
+      const today = dates.today();
+      const saiu = new Set(cs.filter(c => c.data_saida_prevista && c.data_saida_prevista <= today).map(c => norm(c.loja)));
+      const ativos = base.filter(r => !saiu.has(norm(r.nome_loja)));
+
+      const mrr = Dash.sum(rows, 'mensalidade_fixa');
+      const icp = rows.filter(r => r.icp === 'Sim').length;
+      const icpBase = rows.filter(r => r.icp).length;
+      const atrasos = rows.filter(r => r.data_entrada_contrato && r.data_entrada_real)
+        .map(r => ({ d: dates.diffDays(r.data_entrada_contrato, r.data_entrada_real) }));
+      const upsells = rows.filter(r => r.novo_espaco_upsell).length;
+      const semPgto = rows.filter(r => !r.data_primeiro_pagamento).length;
+
+      Dash.kpis('#kpis', [
+        { label: 'Novos clientes', value: fmt.num(rows.length, 0), sub: 'fechados no período' },
+        { label: 'Mensalidade fixa adicionada', value: fmt.moneyShort(mrr), sub: fmt.money(mrr) + '/mês' },
+        { label: 'Ticket médio (mensalidade)', value: fmt.money(Dash.avg(rows, 'mensalidade_fixa')) },
+        { label: 'Taxa variável média', value: fmt.pct(Dash.avg(rows, 'taxa_variavel_pct')), sub: `${fmt.money(Dash.sum(rows, 'taxa_variavel_rs'))} em taxa variável (R$)` },
+        { label: 'Clientes ICP', value: icpBase ? fmt.pct(icp / icpBase * 100) : '—', sub: `${icp} de ${icpBase} classificados` },
+        { label: 'Upsells', value: fmt.num(upsells, 0), sub: 'com novo espaço registrado' },
+        { label: 'Atraso médio de entrada', value: atrasos.length ? fmt.num(Dash.avg(atrasos, 'd'), 0) + ' dias' : '—', sub: 'entrada real − contrato' },
+        { label: 'Base ativa', value: fmt.num(ativos.length, 0), sub: `${fmt.money(Dash.sum(ativos, 'mensalidade_fixa'))}/mês em mensalidades` },
+        ...(semPgto ? [{ label: 'Sem 1º pagamento', value: fmt.num(semPgto, 0), sub: 'fechamentos sem data do 1º pagamento' }] : []),
+      ]);
+
+      const months = dates.monthRange(from, to);
+      const labels = months.map(fmt.month);
+      const colors = Dash.HUB_COLORS();
+      const hubs = hub ? [hub] : HUBS;
+      Dash.bar('c-novos', {
+        labels, stacked: true,
+        datasets: hubs.map(h => ({ label: h, color: colors[h], data: months.map(m => rows.filter(r => r.hub === h && mesRef(r) === m).length) })),
+      });
+      const mrrMes = Dash.sumBy(rows, mesRef, 'mensalidade_fixa');
+      Dash.bar('c-mrr', { labels, money: true, datasets: [{ label: 'Mensalidade fixa', data: months.map(m => mrrMes[m] || 0) }] });
+      const mrrHub = Dash.sumBy(rows, r => r.hub, 'mensalidade_fixa');
+      Dash.bar('c-hub', { labels: hubs, horizontal: true, money: true, datasets: [{ label: 'Mensalidade fixa', data: hubs.map(h => mrrHub[h] || 0) }] });
+      const porModelo = Object.entries(Dash.countBy(rows, r => r.modelo || 'Não informado')).sort((a, b) => b[1] - a[1]);
+      Dash.bar('c-modelo', { labels: porModelo.map(e => e[0]), horizontal: true, datasets: [{ label: 'Clientes', data: porModelo.map(e => e[1]) }] });
+
+      $('#t-fech').innerHTML = [...rows].sort((a, b) => (mesRef(b) || '').localeCompare(mesRef(a) || '')).map(r => `<tr>
+        <td>${fmt.month(mesRef(r))}</td><td>${esc(r.nome_loja)}</td><td>${esc(r.nome_cliente)}</td><td>${esc(r.hub || '—')}</td>
+        <td>${esc(r.modelo || '—')}</td><td class="num">${fmt.money(r.mensalidade_fixa)}</td><td>${fmt.date(r.data_entrada_real)}</td><td>${esc(r.icp || '—')}</td>
+      </tr>`).join('') || '<tr><td colspan="8" class="empty">Nenhum fechamento no período.</td></tr>';
+    }
+
+    (async () => {
+      try { [comercial, cs] = await Promise.all([Store.list('comercial'), Store.list('cs')]); }
+      catch (e) { toast('Erro ao carregar dados: ' + e.message, 'error'); }
+      $$('#filters select').forEach(s => s.addEventListener('change', render));
+      Dash.onThemeChange(render);
+      render();
+    })();
+  </script>
+</body>
+</html>

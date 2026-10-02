@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Início · Gestão Hubs</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="inicio">
+  <main class="content">
+    <header class="page-head">
+      <div><h1>Olá!</h1><p>Resumo rápido da operação</p></div>
+    </header>
+    <section class="home-grid" id="home"></section>
+  </main>
+  <script src="config.js"></script>
+  <script src="store.js"></script>
+  <script src="common.js"></script>
+  <script src="monitor.js"></script>
+  <script>
+    (async () => {
+      let comercial = [], cs = [], status = [], beats = [], cfg;
+      try {
+        [comercial, cs, status, beats, cfg] = await Promise.all([
+          Store.list('comercial'), Store.list('cs'), Store.list('status'), Store.list('heartbeat'), Monitor.loadConfig()]);
+      } catch (e) { toast('Erro ao carregar dados: ' + e.message, 'error'); cfg = Monitor.DEFAULT; }
+
+      const today = dates.today(), mes = today.slice(0, 7);
+      const saiu = new Set(cs.filter(c => c.data_saida_prevista && c.data_saida_prevista <= today).map(c => norm(c.loja)));
+      const ativos = comercial.filter(c => !saiu.has(norm(c.nome_loja)));
+      const novosMes = comercial.filter(c => (c.mes_fechamento || dates.ym(c.data_entrada_real)) === mes).length;
+      const prox30 = cs.filter(c => c.data_saida_prevista >= today && c.data_saida_prevista <= dates.addDays(today, 30)).length;
+      const pendAP = cs.filter(c => (c.reuniao_ap || 'Pendente') === 'Pendente' && (!c.data_saida_prevista || c.data_saida_prevista >= today)).length;
+
+      const byId = arr => Object.fromEntries(arr.map(x => [x.id, x]));
+      const M = byId(status), B = byId(beats);
+      const res = await Promise.all(cfg.servicos.map(s => Monitor.check(s, M[s.id], B[s.id])));
+      const down = cfg.servicos.filter((s, i) => res[i].status === 'down');
+
+      const cards = [
+        { href: 'comercial.html', title: 'Comercial', value: fmt.num(ativos.length, 0) + ' clientes ativos', sub: `${novosMes} fechamentos neste mês` },
+        { href: 'cs.html', title: 'CS', value: prox30 + ' saídas em 30 dias', sub: `${pendAP} reuniões de A.P pendentes` },
+        { href: 'dashboard-comercial.html', title: 'Dashboard Comercial', value: fmt.moneyShort(somaMensalidades(ativos)), sub: 'em mensalidades fixas ativas/mês' },
+        { href: 'dashboard-cs.html', title: 'Dashboard CS', value: cs.length + ' solicitações', sub: 'de saída registradas no total' },
+        { href: 'sistemas.html', title: 'Status dos Sistemas',
+          value: down.length ? `<span class="badge down">✕ ${down.length} com problema</span>` : '<span class="badge ok">● Tudo operando</span>',
+          sub: down.length ? down.map(s => esc(s.nome)).join(', ') : `${cfg.servicos.length} serviços monitorados` },
+      ];
+      function somaMensalidades(arr) { return arr.reduce((s, r) => s + (Number(r.mensalidade_fixa) || 0), 0); }
+      $('#home').innerHTML = cards.map(c => `
+        <a class="card home-card" href="${c.href}"><strong>${c.title}</strong>
+        <span class="value">${c.value}</span><span class="muted small">${c.sub}</span></a>`).join('');
+    })();
+  </script>
+</body>
+</html>

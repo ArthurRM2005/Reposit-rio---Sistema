@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar · Gestão Hubs</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="login">
+  <div class="login-wrap">
+    <form class="card login-card" id="login">
+      <div class="brand"><span class="brand-mark">G</span>Gestão Hubs</div>
+      <label class="field"><span>E-mail</span><input class="input" type="email" name="email" required autocomplete="username"></label>
+      <label class="field"><span>Senha</span><input class="input" type="password" name="password" required autocomplete="current-password"></label>
+      <button class="btn primary" type="submit">Entrar</button>
+      <p class="muted small" id="mode"></p>
+    </form>
+  </div>
+  <script src="config.js"></script>
+  <script src="store.js"></script>
+  <script src="common.js"></script>
+  <script>
+    if (!Store.isRemote()) {
+      $('#mode').innerHTML = 'Nenhum banco na nuvem configurado. <a href="index.html">Continuar em modo local</a>.';
+    } else if (Store.getSession()) {
+      location.href = 'index.html';
+    }
+    $('#login').addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = e.target, btn = $('button', f);
+      btn.disabled = true;
+      try {
+        await Store.login(f.email.value.trim(), f.password.value);
+        location.href = 'index.html';
+      } catch (err) { toast(err.message, 'error'); }
+      finally { btn.disabled = false; }
+    });
+  </script>
+</body>
+</html>

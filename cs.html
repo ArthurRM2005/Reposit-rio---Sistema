@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CS · Gestão Hubs</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="cs">
+  <main class="content">
+    <header class="page-head">
+      <div><h1>CS</h1><p>Solicitações de saída, aviso prévio e tempo de vida dos clientes</p></div>
+    </header>
+    <div id="crud"></div>
+  </main>
+  <script src="config.js"></script>
+  <script src="store.js"></script>
+  <script src="common.js"></script>
+  <script src="schemas.js"></script>
+  <script src="crud.js"></script>
+  <script>
+    (async () => {
+      let comercial = [];
+      try { comercial = await Store.list('comercial'); } catch (e) { toast(e.message, 'error'); }
+      const byLoja = Object.fromEntries(comercial.map(c => [norm(c.nome_loja), c]));
+
+      CrudPage({
+        el: '#crud', table: 'cs', fields: CS_FIELDS, filterKey: 'hub', sortKey: 'data_saida_prevista',
+        suggestions: { loja: comercial.map(c => c.nome_loja).filter(Boolean) },
+        // Ao informar a loja, completa os campos vazios com os dados do Comercial
+        onChange(key, rec) {
+          if (key !== 'loja' && key !== null) return {};
+          const c = byLoja[norm(rec.loja)];
+          if (!c) return {};
+          const src = {
+            nome_cliente: c.nome_cliente, hub: c.hub, mensalidade_fixa: c.mensalidade_fixa,
+            taxa_variavel: c.taxa_variavel_pct, espaco: c.espaco_ocupado,
+            data_inicio: c.data_entrada_real || c.data_entrada_contrato,
+          };
+          return Object.fromEntries(Object.entries(src).filter(([k, v]) => !isBlank(v) && isBlank(rec[k])));
+        },
+      });
+    })();
+  </script>
+</body>
+</html>

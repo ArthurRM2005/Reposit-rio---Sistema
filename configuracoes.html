@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configurações · Gestão Hubs</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'>G</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="config">
+  <main class="content">
+    <header class="page-head"><div><h1>Configurações</h1><p>Banco de dados, monitoramento e backup</p></div></header>
+    <div class="settings">
+
+      <section class="card">
+        <h2>Banco de dados na nuvem (Supabase)</h2>
+        <p>Com o Supabase configurado, os dados ficam salvos na nuvem e são compartilhados por toda a equipe, com login.
+          Sem ele, os dados ficam só neste navegador. O ideal é preencher em <code>config.js</code>, o que vale para todos.
+          Os campos abaixo valem só para este navegador.</p>
+        <p id="db-mode"></p>
+        <div class="form-grid">
+          <label class="field"><span>URL do projeto</span><input class="input" id="sb-url" placeholder="https://xxxx.supabase.co"></label>
+          <label class="field"><span>Chave pública (anon key)</span><input class="input" id="sb-key" placeholder="eyJhbGciOi…"></label>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="sb-save">Salvar e conectar</button>
+          <button class="btn ghost" id="sb-reset">Usar valores do config.js</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Monitoramento dos sistemas</h2>
+        <p>Defina como cada serviço é verificado. <strong>Manual</strong>: a equipe marca o status na tela.
+          <strong>HTTP</strong>: a URL precisa responder 2xx e permitir CORS. <strong>Alcance</strong>: só verifica se a URL responde.
+          <strong>Campo JSON</strong>: compara um campo da resposta (ex.: <code>data.aberto</code> = <code>true</code>).
+          <strong>Heartbeat</strong>: o sistema externo envia um sinal periódico (veja abaixo).</p>
+        <div class="row"><label class="field" style="width:220px"><span>Intervalo de atualização (segundos)</span><input class="input" type="number" min="15" id="mon-int"></label></div>
+        <div class="table-wrap"><table class="data static" id="mon-table"><thead><tr>
+          <th>Nome</th><th>Grupo</th><th>Modo</th><th>URL</th><th>Campo JSON</th><th>Valor esperado</th><th>Heartbeat (min)</th><th></th>
+        </tr></thead><tbody></tbody></table></div>
+        <div class="row">
+          <button class="btn ghost" id="mon-add">+ Adicionar serviço</button>
+          <span class="spacer"></span>
+          <button class="btn ghost" id="mon-default">Restaurar padrão</button>
+          <button class="btn primary" id="mon-save">Salvar monitoramento</button>
+        </div>
+        <h3 style="margin-top:18px">Como o sistema externo envia o heartbeat</h3>
+        <p class="small muted" style="margin-top:0">Ex.: o serviço de push de pedidos chama este endereço a cada poucos minutos. Exige Supabase configurado (veja o README).</p>
+        <pre id="hb-example"></pre>
+      </section>
+
+      <section class="card">
+        <h2>Backup</h2>
+        <p>Exporte todos os dados em um arquivo JSON ou restaure um backup (os registros com o mesmo ID são substituídos).</p>
+        <div class="row">
+          <button class="btn" id="bk-export">Exportar backup</button>
+          <label class="btn">Restaurar backup<input type="file" accept=".json" id="bk-import" hidden></label>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script src="config.js"></script>
+  <script src="store.js"></script>
+  <script src="common.js"></script>
+  <script src="monitor.js"></script>
+  <script>
+    const TABLES = ['comercial', 'cs', 'config', 'status', 'heartbeat'];
+    const s = Store.settings();
+    $('#sb-url').value = s.supabaseUrl;
+    $('#sb-key').value = s.supabaseAnonKey;
+    $('#db-mode').innerHTML = Store.isRemote()
+      ? '<span class="badge ok">● Conectado ao Supabase</span>'
+      : '<span class="badge warn">Modo local: dados apenas neste navegador</span>';
+
+    $('#sb-save').addEventListener('click', () => {
+      Store.setSettings({ supabaseUrl: $('#sb-url').value.trim(), supabaseAnonKey: $('#sb-key').value.trim() });
+      Store.logout();
+      location.href = Store.isRemote() ? 'login.html' : 'configuracoes.html';
+    });
+    $('#sb-reset').addEventListener('click', () => { Store.setSettings(null); Store.logout(); location.reload(); });
+
+    // ---------- monitoramento ----------
+    let cfg;
+    const opt = (vals, cur) => vals.map(([v, l]) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('');
+    function renderMon() {
+      $('#mon-int').value = cfg.intervalo;
+      $('#mon-table tbody').innerHTML = cfg.servicos.map((sv, i) => `<tr data-i="${i}">
+        <td><input class="input" data-k="nome" value="${esc(sv.nome)}" style="min-width:150px"></td>
+        <td><input class="input" data-k="grupo" value="${esc(sv.grupo)}" list="grupos" style="min-width:110px"></td>
+        <td><select class="input" data-k="modo">${opt(Object.entries(Monitor.MODOS), sv.modo)}</select></td>
+        <td><input class="input" data-k="url" value="${esc(sv.url)}" placeholder="https://…" style="min-width:200px"></td>
+        <td><input class="input" data-k="campo" value="${esc(sv.campo)}" placeholder="ex.: aberto" style="min-width:110px"></td>
+        <td><input class="input" data-k="esperado" value="${esc(sv.esperado)}" placeholder="ex.: true" style="min-width:90px"></td>
+        <td><input class="input" data-k="heartbeatMin" type="number" min="1" value="${esc(sv.heartbeatMin)}" style="width:80px"></td>
+        <td><button class="icon-btn" data-del="${i}" title="Remover">×</button></td></tr>`).join('')
+        + '<datalist id="grupos"><option value="Hubs"><option value="Integrações"></datalist>';
+      $$('#mon-table [data-k]').forEach(inp => inp.addEventListener('change', () => {
+        const sv = cfg.servicos[inp.closest('tr').dataset.i];
+        sv[inp.dataset.k] = inp.dataset.k === 'heartbeatMin' ? Number(inp.value) || 10 : inp.value.trim();
+      }));
+      $$('#mon-table [data-del]').forEach(b => b.addEventListener('click', () => { cfg.servicos.splice(+b.dataset.del, 1); renderMon(); }));
+      const hb = cfg.servicos.find(x => x.modo === 'heartbeat') || { id: 'push_pedidos' };
+      const st = Store.settings();
+      $('#hb-example').textContent =
+`curl -X POST '${st.supabaseUrl || 'https://SEU-PROJETO.supabase.co'}/rest/v1/rpc/heartbeat' \\
+  -H 'apikey: ${st.supabaseAnonKey ? st.supabaseAnonKey.slice(0, 12) + '…' : 'SUA_ANON_KEY'}' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"servico": "${hb.id}"}'
+
+IDs dos serviços: ${cfg.servicos.map(x => x.id).join(', ')}`;
+    }
+    $('#mon-add').addEventListener('click', () => {
+      const nome = prompt('Nome do serviço:');
+      if (!nome) return;
+      cfg.servicos.push({ id: norm(nome) || Store.uid(), nome, grupo: 'Integrações', modo: 'manual', url: '', campo: '', esperado: '', heartbeatMin: 10 });
+      renderMon();
+    });
+    $('#mon-default').addEventListener('click', () => { if (confirm('Restaurar a lista padrão de serviços?')) { cfg = structuredClone(Monitor.DEFAULT); renderMon(); } });
+    $('#mon-save').addEventListener('click', async () => {
+      cfg.intervalo = Math.max(15, Number($('#mon-int').value) || 60);
+      try { await Monitor.saveConfig(cfg); toast('Monitoramento salvo', 'ok'); } catch (e) { toast(e.message, 'error'); }
+    });
+    Monitor.loadConfig().then(c => { cfg = c; renderMon(); });
+
+    // ---------- backup ----------
+    $('#bk-export').addEventListener('click', async () => {
+      try {
+        const data = Object.fromEntries(await Promise.all(TABLES.map(async t => [t, await Store.list(t)])));
+        const blob = new Blob([JSON.stringify({ versao: 1, exportado_em: new Date().toISOString(), data }, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `backup-gestao-hubs-${dates.today()}.json`;
+        a.click();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+    $('#bk-import').addEventListener('change', async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const { data } = JSON.parse(await file.text());
+        if (!confirm(`Restaurar ${Object.values(data).reduce((n, a) => n + a.length, 0)} registros?`)) return;
+        for (const t of TABLES) if (data[t]?.length) await Store.saveMany(t, data[t]);
+        toast('Backup restaurado', 'ok');
+      } catch (err) { toast('Arquivo inválido: ' + err.message, 'error'); }
+      e.target.value = '';
+    });
+  </script>
+</body>
+</html>
