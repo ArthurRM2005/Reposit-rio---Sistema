@@ -124,7 +124,26 @@ function CrudPage(opts) {
       const raw = form.elements[f.key]?.value?.trim() ?? '';
       rec[f.key] = ['money', 'percent', 'int', 'months'].includes(f.type) ? parse.num(raw) : (raw || null);
     }
+    return applyForced(rec);
+  }
+
+  // campos com `forced`: quando a regra devolve um valor, o campo assume esse valor e fica travado
+  function applyForced(rec) {
+    for (const f of fields) {
+      if (!f.forced) continue;
+      const v = f.forced(rec);
+      if (v !== undefined) rec[f.key] = v;
+    }
     return rec;
+  }
+  function syncForced(form, rec) {
+    for (const f of fields) {
+      const i = form.elements[f.key];
+      if (!f.forced || !i) continue;
+      const v = f.forced(rec);
+      if (v !== undefined) i.value = v ?? '';
+      i.readOnly = v !== undefined || !!f.readonly;
+    }
   }
 
   function setValue(form, key, v) { const i = form.elements[key]; if (i) i.value = v ?? ''; }
@@ -172,6 +191,7 @@ function CrudPage(opts) {
     if (cnpj) cnpj.addEventListener('input', () => { cnpj.value = maskCNPJ(cnpj.value); });
     const tel = form.elements.telefone;
     if (tel) tel.addEventListener('input', () => { tel.value = maskPhone(tel.value); });
+    syncForced(form, base);
 
     form.addEventListener('change', e => {
       const key = e.target.name;
@@ -182,10 +202,12 @@ function CrudPage(opts) {
         cur = { ...cur, ...patch };
         const after = runComputed(cur, [key, ...Object.keys(patch)]);
         fields.filter(f => f.compute).forEach(f => setValue(form, f.key, after[f.key]));
+        syncForced(form, after);
         return;
       }
       const after = runComputed(cur, [key]);
       fields.filter(f => f.compute).forEach(f => setValue(form, f.key, after[f.key]));
+      syncForced(form, after);
     });
     form.elements[fields[0].key]?.focus();
   }
@@ -268,7 +290,7 @@ function CrudPage(opts) {
         map.forEach((f, i) => { if (f) rec[f.key] = convert(f, r[i]); });
         fields.filter(f => 'default' in f && isBlank(rec[f.key])).forEach(f => { rec[f.key] = f.default; });
         if (onChange) Object.assign(rec, Object.fromEntries(Object.entries(onChange(null, rec) || {}).filter(([k]) => isBlank(rec[k]))));
-        return runComputed(rec, fields.map(f => f.key));
+        return applyForced(runComputed(rec, fields.map(f => f.key)));
       });
     return {
       records,

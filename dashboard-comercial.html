@@ -62,7 +62,7 @@
         { label: 'Novos clientes', value: fmt.num(rows.length, 0), sub: 'fechados no período' },
         { label: 'Mensalidade fixa adicionada', value: fmt.moneyShort(mrr), sub: fmt.money(mrr) + '/mês' },
         { label: 'Ticket médio (mensalidade)', value: fmt.money(Dash.avg(rows, 'mensalidade_fixa')) },
-        { label: 'Taxa variável média', value: fmt.pct(Dash.avg(rows, 'taxa_variavel_pct')), sub: `${fmt.money(Dash.sum(rows, 'taxa_variavel_rs'))} em taxa variável (R$)` },
+        { label: 'Taxa variável média', value: fmt.pct(Dash.avg(rows.filter(r => !isDK(r.modelo)), 'taxa_variavel_pct')), sub: `sem DK · ${fmt.money(Dash.sum(rows.filter(r => isDK(r.modelo)), 'taxa_variavel_rs'))}/mês em taxa variável DK (R$)` },
         { label: 'Clientes ICP', value: icpBase ? fmt.pct(icp / icpBase * 100) : '—', sub: `${icp} de ${icpBase} classificados` },
         { label: 'Upsells', value: fmt.num(upsells, 0), sub: 'com novo espaço registrado' },
         { label: 'Atraso médio de entrada', value: atrasos.length ? fmt.num(Dash.avg(atrasos, 'd'), 0) + ' dias' : '—', sub: 'entrada real − contrato' },

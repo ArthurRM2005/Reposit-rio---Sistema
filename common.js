@@ -8,6 +8,8 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const isBlank = v => v === null || v === undefined || v === '';
+// Modelo DK: taxa variável cobrada em valor fixo (R$), nunca em %
+const isDK = modelo => norm(modelo).startsWith('dk');
 
 // ---------- formatação ----------
 const fmt = {

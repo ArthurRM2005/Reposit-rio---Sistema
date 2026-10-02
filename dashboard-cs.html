@@ -16,7 +16,7 @@
     <div class="filters" id="filters"></div>
 
     <section class="kpis" id="k-resumo"></section>
-    <p class="muted small note">Faturamento de cada cliente = mensalidade fixa + (taxa variável × faturamento mensal médio do cliente).
+    <p class="muted small note">Faturamento de cada cliente = mensalidade fixa + (taxa variável × faturamento mensal médio do cliente). No modelo DK, a taxa variável é o valor em R$ do cadastro.
       Churn = esse faturamento ÷ faturamento mensal base da empresa.</p>
 
     <div class="section-head">
@@ -67,7 +67,14 @@
 
     // faturamento mensal que a empresa recebe do cliente
     const fixa = r => Number(r.mensalidade_fixa) || 0;
-    const variavel = r => (Number(r.faturamento_medio) || 0) * (Number(r.taxa_variavel) || 0) / 100;
+    // DK: taxa variável em R$ digitada no cadastro; demais: % sobre o faturamento médio.
+    // Registros antigos sem modelo/valor buscam no Comercial pela loja.
+    const doComercial = r => comercial.find(c => norm(c.nome_loja) === norm(r.loja)) || {};
+    const variavel = r => {
+      const com = doComercial(r);
+      if (isDK(r.modelo || com.modelo)) return Number(isBlank(r.taxa_variavel_rs) ? com.taxa_variavel_rs : r.taxa_variavel_rs) || 0;
+      return (Number(r.faturamento_medio) || 0) * (Number(r.taxa_variavel) || 0) / 100;
+    };
     const receita = r => fixa(r) + variavel(r);
     const somaReceita = arr => arr.reduce((s, r) => s + receita(r), 0);
     const pctBase = v => BASE ? v / BASE * 100 : null;
