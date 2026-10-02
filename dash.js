@@ -5,6 +5,8 @@ const Dash = (() => {
 
   const HUB_COLORS = () => Object.fromEntries(HUBS.map((h, i) => [h, css(`--series-${(i % 4) + 1}`)]));
 
+  if (window.Chart) Chart.defaults.font.family = "'Poppins', system-ui, sans-serif";
+
   function bar(id, { labels, datasets, horizontal = false, money = false, stacked = false, suffix = '', afterLabel = null }) {
     charts[id]?.destroy();
     const ctx = document.getElementById(id);
@@ -16,7 +18,7 @@ const Dash = (() => {
         labels,
         datasets: datasets.map(d => ({
           backgroundColor: d.color || css('--chart-brand'),
-          borderRadius: 4,
+          borderRadius: 6,
           borderSkipped: 'start',
           borderColor: css('--surface'),
           borderWidth: stacked ? { top: 2 } : 0,
