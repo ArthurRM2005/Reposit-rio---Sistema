@@ -38,6 +38,7 @@
             nome_cliente: c.nome_cliente, hub: c.hub, mensalidade_fixa: c.mensalidade_fixa,
             modelo: c.modelo, taxa_variavel: c.taxa_variavel_pct, espaco: c.espaco_ocupado,
             taxa_variavel_rs: isDK(c.modelo) ? c.taxa_variavel_rs : null,
+            data_entrada_contrato: c.data_entrada_contrato, data_entrada_real: c.data_entrada_real,
             data_inicio: c.data_entrada_real || c.data_entrada_contrato,
           };
           return Object.fromEntries(Object.entries(src).filter(([k, v]) => !isBlank(v) && isBlank(rec[k])));
